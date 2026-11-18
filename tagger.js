@@ -156,10 +156,109 @@
     return (base || '') + row.path + '?' + params.join('&');
   }
 
+  /* ---------- "Site Merch Updates" layout ----------
+     Header: Viewport | # | Shop Name | URL / ID | Start Date | End Date | Ownership.
+     A block starts at a viewport label (DESKTOP / MOBILE or APP) and ends at a blank row; the sheet has no
+     nav / section names. DESKTOP blocks are rewritten into the standard layout (menu + section row, header row,
+     link rows) with the menu/section guessed from the URLs (rename the menu in the groups table).
+     APP blocks hold tag ids (e.g. NewNow_NewArrivals_Tops): when one matches a desktop link by name it is
+     attached to that link as its data-category_name; APP rows are otherwise not output. */
+  function guessMenu(items) {
+    var count = {}, order = [], segsAll = [], best = '';
+    items.forEach(function (it) {
+      var u = it.url.split(' ')[0].replace(/^https?:\/\/(www\.)?torrid\.com/i, '');
+      if (!u || isExternal(u)) return;
+      var segs = u.split('?')[0].split('/').filter(Boolean).map(function (s) { return s.toLowerCase(); });
+      if (!segs.length) return;
+      segsAll.push(segs);
+      if (!(segs[0] in count)) { count[segs[0]] = 0; order.push(segs[0]); }
+      count[segs[0]]++;
+    });
+    order.forEach(function (s) { if (!best || count[s] > count[best]) best = s; });
+    var name = function (s) { return s.replace(/-/g, ' ').toUpperCase(); };
+    if (!best) return { menu: 'MERCH', section: 'FEATURED' };
+    if (best === 'featured') return { menu: 'NEW', section: 'FEATURED' };
+    if (best === 'new') return { menu: 'NEW', section: 'NEW ARRIVALS' };
+    if (best === 'brands') return { menu: 'CLOTHING', section: 'BRANDS' };
+    if (best === 'clothing') {
+      var sub = segsAll[0][1];
+      var same = segsAll.length > 1 && sub && segsAll.every(function (s) { return s[0] === 'clothing' && s[1] === sub; });
+      return same ? { menu: name(sub), section: 'CATEGORIES' } : { menu: 'CLOTHING', section: 'CATEGORIES' };
+    }
+    return { menu: name(best), section: 'FEATURED' };
+  }
+  // -> text in the standard layout, or null when the text is not a Site Merch Updates sheet
+  function convertMerch(grid) {
+    var clean = function (c) { return String(c == null ? '' : c).replace(/\s+/g, ' ').trim(); };
+    var h = -1, li = -1, ui = -1, vi = 0, i;
+    for (i = 0; i < grid.length && h < 0; i++) {
+      var hc = grid[i].map(clean), l = -1, u = -1;
+      hc.forEach(function (c, k) {
+        var up = c.toUpperCase();
+        if (up === 'SHOP NAME') l = k; else if (/^URL\s*\/\s*(ID|TAG)/.test(up)) u = k;
+      });
+      if (l >= 0 && u >= 0) { h = i; li = l; ui = u; vi = Math.max(0, hc.map(function (c) { return c.toUpperCase(); }).indexOf('VIEWPORT')); }
+    }
+    if (h < 0) return null;
+
+    var blocks = [], cur = null, hMenu = '', hSection = '';
+    for (i = h + 1; i < grid.length; i++) {
+      var c = grid[i].map(clean);
+      if (!c.some(Boolean)) { cur = null; continue; }
+      // heading row: only the first cell filled. ALL CAPS = nav (menu), anything else = section.
+      // Sections ending in "App" (e.g. "Dresses App") are app-only and ignored.
+      if (c[0] && !c[vi] && !c[li] && !c[ui] && c.filter(Boolean).length === 1) {
+        if (/[A-Z]/.test(c[0]) && c[0] === c[0].toUpperCase()) { hMenu = c[0]; hSection = ''; }
+        else hSection = c[0];
+        cur = null; continue;
+      }
+      var inApp = /\bapp$/i.test(hSection);
+      if (c[vi]) { cur = { app: inApp || /^APP/i.test(c[vi]), items: [], menu: hMenu, section: hSection }; blocks.push(cur); }
+      else if (!cur) { cur = { app: inApp, items: [], menu: hMenu, section: hSection }; blocks.push(cur); }
+      var label = c[li] || '', url = c[ui] || '';
+      if ((!label && !url) || label.toUpperCase() === 'SHOP NAME') continue;
+      var na = function (v) { return /^n\/?a$/i.test(v || '') ? '' : (v || ''); };
+      cur.items.push({ label: label, url: url, start: na(c[ui + 1]), end: na(c[ui + 2]), owner: c[ui + 3] || '', hint: '' });
+    }
+
+    // APP rows are never output. Their tag ids (e.g. NewNow_NewArrivals_Tops) are only used as the
+    // data-category_name of the desktop link with the same name (same menu first, then any menu).
+    var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+    var tagByMenu = {}, tagAny = {};
+    blocks.forEach(function (b) {
+      if (!b.app) return;
+      b.items.forEach(function (it) {
+        var tag = (it.url || '').split(' ')[0];
+        // skip empty cells and cells that just repeat the link name (e.g. "Tops" next to "Tops")
+        if (!norm(it.label) || !/^[A-Za-z0-9_]+$/.test(tag) || norm(tag) === norm(it.label)) return;
+        tagByMenu[norm(b.menu) + '|' + norm(it.label)] = tag;
+        if (!tagAny[norm(it.label)]) tagAny[norm(it.label)] = tag;
+      });
+    });
+    var out = [];
+    blocks.forEach(function (b) {
+      if (b.app || !b.items.length) return;
+      b.items.forEach(function (it) {
+        // a tag typed on the desktop row itself (e.g. "/featured/rosy/ NewNow_Featured_Blush") wins
+        var own = it.url.split(/\s+/).slice(1).some(function (t) { return /^[A-Za-z0-9_]+$/.test(t); });
+        if (!it.hint && !own) it.hint =tagByMenu[norm(b.menu) + '|' + norm(it.label)] || tagAny[norm(it.label)] || '';
+      });
+      var g = guessMenu(b.items);
+      if (b.menu) g = { menu: b.menu, section: b.section || b.menu };
+      out.push(g.menu, g.section, 'Link\tURL\tStart\tEnd\tOwner');
+      b.items.forEach(function (it) {
+        out.push([it.label, it.url ? it.url + (it.hint ? ' ' + it.hint : '') : '', it.start, it.end, it.owner].join('\t'));
+      });
+      out.push('');
+    });
+    return out.join('\n');
+  }
+
   /* ---------- main sheet parser ---------- */
   function parseSheet(text, today) {
     today = today || new Date();
-    var grid = parseTSV(text);
+    var grid = parseTSV(text), merch = convertMerch(grid);
+    if (merch) grid = parseTSV(merch);
     var rows = [], skipped = [], groups = {}, groupOrder = [];
     var blocks = null, pending = [], menu = '';
     var uid = 0;
@@ -335,7 +434,7 @@
     defaultPromoName: defaultPromoName, defaultCatName: defaultCatName, buildWorkbook: buildWorkbook, normalizeUrl: normalizeUrl, assetName: assetName,
     groupDefaults: groupDefaults,
     // bump whenever parsing rules change, so a stale auto-saved session is re-parsed instead of restored
-    PARSER_VERSION: 2
+    PARSER_VERSION: 4
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Tagger = api;

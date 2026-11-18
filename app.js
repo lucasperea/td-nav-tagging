@@ -21,6 +21,16 @@
     state.rows = res.rows; state.skipped = res.skipped;
     state.groups = res.groups; state.order = res.groupOrder; state.menu = 'ALL';
     renderGroups(); renderWarnings(); renderTabs(); renderRows(); renderWrikeControls();
+    setStep1(state.rows.length > 0);
+  }
+
+  // collapse the paste box once links are generated; header shows a summary and toggles it back open
+  function setStep1(collapsed) {
+    $('step1Body').classList.toggle('d-none', collapsed);
+    $('step1Toggle').setAttribute('aria-expanded', String(!collapsed));
+    $('step1Caret').innerHTML = collapsed ? '&#9656;' : '&#9662;';
+    var menus = menusInOrder().length;
+    $('step1Summary').textContent = collapsed ? '\u2014 ' + state.rows.length + ' links in ' + menus + ' navigation' + (menus === 1 ? '' : 's') : '';
   }
 
   function renderGroups() {
@@ -36,27 +46,33 @@
         (nm ? ' <span class="badge text-bg-danger" title="' + nm + ' missing URL">' + nm + ' missing</span>' : '') + '</td>' +
         '<td><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="id" value="' + esc(g.id) + '"></td>' +
         '<td><div class="d-flex gap-1"><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="pos" value="' + esc(g.pos) + '">' +
-        (g.known ? '' : '<span class="badge text-bg-warning align-self-center" title="Not found in your nav folders - verify">guess</span>') + '</div></td>' +
+        '</div></td>' +
         '<td><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="namePrefix" value="' + esc(g.namePrefix) + '"></td></tr>';
     }).join('');
   }
 
   function missingRows() { return state.rows.filter(function (r) { return r.missing; }); }
 
+  // A closed warning stays closed until its content changes (the key includes what it lists).
+  var dismissedWarn = {};
   function renderWarnings() {
     var h = '';
+    var close = function (key) { return '<button type="button" class="btn-close" data-warn="' + esc(key) + '" aria-label="Close warning"></button>'; };
     var miss = missingRows();
-    if (miss.length) {
-      h += '<div class="alert alert-danger py-2 mb-2"><strong>' + miss.length + ' link(s) missing a URL (highlighted red below):</strong> ' +
-        miss.map(function (r) { return esc(r.menu + ' > ' + r.section + ' > ' + r.label); }).join(' &middot; ') + '</div>';
-    }
-    var unk = state.order.filter(function (k) { return !state.groups[k].known; });
-    if (unk.length) {
-      h += '<div class="alert alert-info py-2 mb-0">promo_position was guessed for: ' +
-        unk.map(function (k) { return esc(k.replace('|', ' / ')); }).join(', ') + '. Confirm in the groups table.</div>';
+    var mkey = 'miss:' + miss.map(function (r) { return r.id; }).join(',');
+    if (miss.length && !dismissedWarn[mkey]) {
+      h += '<div class="alert alert-danger py-2 mb-2 pe-5 position-relative"><strong>' + miss.length + ' link(s) missing a URL</strong> <span class="small">(click to jump to it):</span> ' +
+        miss.map(function (r) { return '<a href="#" class="miss-link" data-rid="' + r.id + '">' + esc(r.menu + ' > ' + r.section + ' > ' + r.label) + '</a>'; }).join(' &middot; ') +
+        close(mkey).replace('class="btn-close"', 'class="btn-close position-absolute top-0 end-0 m-2"') + '</div>';
     }
     $('warnings').innerHTML = h;
   }
+  $('warnings').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.btn-close[data-warn]') : null;
+    if (!b) return;
+    dismissedWarn[b.getAttribute('data-warn')] = true;
+    renderWarnings();
+  });
 
   function renderTabs() {
     var menus = [];
@@ -65,9 +81,9 @@
     $('menuTabs').innerHTML = items.map(function (m) {
       var inMenu = state.rows.filter(function (r) { return m === 'ALL' || r.menu === m; });
       var miss = inMenu.filter(function (r) { return r.missing; }).length;
-      return '<li class="nav-item"><a href="#" class="nav-link py-1 px-2' + (m === state.menu ? ' active' : '') + (miss ? ' has-missing' : '') + '" data-menu="' + esc(m) + '">' +
-        esc(m === 'ALL' ? 'All' : m) + ' <span class="badge text-bg-light">' + inMenu.length + '</span>' +
-        (miss ? ' <span class="badge text-bg-danger" title="' + miss + ' link(s) missing a URL">' + miss + ' missing</span>' : '') + '</a></li>';
+      return '<li class="nav-item"><a href="#" class="nav-link py-1 px-2' + (m === state.menu ? ' active' : '') + '" data-menu="' + esc(m) + '">' +
+        esc(m === 'ALL' ? 'All' : m) + ' <span class="tab-count">' + inMenu.length + '</span>' +
+        (miss ? '<span class="miss-dot" title="' + miss + ' link(s) missing a URL"></span>' : '') + '</a></li>';
     }).join('');
   }
 
@@ -104,12 +120,13 @@
         '<input type="checkbox" class="inc" data-id="' + r.id + '" title="Include" ' + (r.exclude ? '' : 'checked') + '>' +
         (r.start ? '<span class="badge text-bg-light border" title="Start date">' + esc(r.start) + '</span>' : '') +
         '<span class="fw-semibold">' + esc(r.label) + '</span>' +
-        '<label class="newflag small"><input type="checkbox" class="isnew" data-id="' + r.id + '" ' + (r.isNew ? 'checked' : '') + '> NEW</label>' +
+        '<label class="newflag small form-check form-switch ps-0" title="Append NEW to the link name"><input type="checkbox" role="switch" class="form-check-input isnew" data-id="' + r.id + '" ' + (r.isNew ? 'checked' : '') + '> NEW flag</label>' +
+        '<button type="button" class="url-toggle" title="Show / hide tagged URL">&#9656;</button>' +
         flags.map(flagBadge).join('') +
       '</div>' +
       '<input class="form-control form-control-sm url-edit mt-1" data-id="' + r.id + '" title="Edit URL (press Enter or click away to apply)" ' +
         'placeholder="Add URL, e.g. /featured/holiday-shop/" value="' + esc(r.missing ? '' : r.path + (r.query.length ? '?' + r.query.join('&') : '')) + '">' +
-      '<div class="url-cell" id="u' + r.id + '">' + (r.missing ? '<span class="miss-label">- MISSING URL</span>' : '- ' + esc(link(r))) + '</div>' +
+      '<div class="url-cell' + (r.missing ? ' is-missing' : '') + '" id="u' + r.id + '">' + (r.missing ? '<span class="miss-label">- MISSING URL</span>' : '- ' + esc(link(r))) + '</div>' +
       '<details class="small"><summary class="text-muted">tags</summary>' +
         '<input class="form-control form-control-sm mb-1" data-r="' + r.id + '" data-f="catName" title="data-category_name" value="' + esc(r.catName) + '">' +
         '<input class="form-control form-control-sm" data-r="' + r.id + '" data-f="promoName" title="promo_name" value="' + esc(r.promoName) + '">' +
@@ -208,6 +225,7 @@
 
   function renderRows() {
     var rows = visible();
+    if (!state.rows.length) { $('out').innerHTML = emptyHtml(); renderWrikePreview(); return; }
     if (!rows.length) { $('out').innerHTML = '<div class="text-muted">No links to show.</div>'; renderWrikePreview(); return; }
     var html = '';
     menusInOrder().forEach(function (m) {
@@ -247,8 +265,8 @@
   function renderWrikeControls() {
     var menus = menusInOrder();
     if (!menus.length) {
-      $('wrikeControls').innerHTML = '<div class="text-muted">Paste a sheet and click Generate.</div>';
-      $('wrikePreview').innerHTML = ''; return;
+      $('wrikeControls').innerHTML = emptyHtml(true);
+      $('wrikePreview').innerHTML = ''; $('wrikeSummary').textContent = ''; $('wrikePreviewToggle').classList.add('d-none'); return;
     }
     // top row: tick a navigation to include its whole table below, untick to drop it
     var navRow = '<div class="wrike-nav mb-2"><div class="mb-1"><strong>Navigation</strong> <span class="text-muted small">(check to include)</span></div>' +
@@ -357,9 +375,9 @@
     var rows = wrikeGrid(d, { item: wrikeItemHtml, asset: wrikeAssetHtml });
     return '<p><b style="color:#d6001c">' + esc(d.menu) + '</b></p>' +
       '<table class="wrike" border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr>' +
-      wrikeHead(d).map(function (h) { return '<th style="text-align:left;vertical-align:top">' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      wrikeHead(d).map(function (h) { return '<th style="text-align:left;vertical-align:top;white-space:nowrap">' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(function (cells) {
-        return '<tr>' + cells.map(function (c) { return '<td style="vertical-align:top">' + c + '</td>'; }).join('') + '</tr>';
+        return '<tr>' + cells.map(function (c) { return '<td style="vertical-align:top;white-space:nowrap">' + c + '</td>'; }).join('') + '</tr>';
       }).join('') + '</tbody></table>';
   }
   function wrikeTableText(d) {
@@ -368,23 +386,52 @@
       rows.map(function (cells) { return cells.map(tsvCell).join('\t'); }).join('\n');
   }
   function renderWrikePreview() {
-    $('wrikePreview').innerHTML = menusInOrder().map(wrikeData).filter(Boolean).map(function (d) {
+    var ds = menusInOrder().map(wrikeData).filter(Boolean);
+    $('wrikePreview').innerHTML = ds.map(function (d) {
       return '<div class="mb-4">' + wrikeTableHtml(d) + '</div>';
     }).join('') || '<div class="text-muted small">No sections selected.</div>';
+    var links = ds.reduce(function (n, d) { return n + d.cols.reduce(function (m, c) { return m + c.items.length; }, 0); }, 0);
+    $('wrikeSummary').textContent = ds.length ? ds.length + ' table' + (ds.length === 1 ? '' : 's') + ' · ' + links + ' links ready to copy' : '';
+    $('wrikePreviewToggle').classList.toggle('d-none', !ds.length);
   }
-  function copyRich(html, text, msg) {
+
+  /* ---------- empty state + sample data ---------- */
+  var SAMPLE = [
+    'TOPS', 'FEATURED', 'Link\tURL\tStart\tEnd\tOwner', 'New Arrivals\t/tops/new-arrivals/\t\t\tAlex',
+    'Holiday Tops\t/tops/holiday/\t11/20/26\t\tAlex', 'Bestsellers\t/tops/bestsellers/', 'Shop All Sweaters\t', '',
+    'DRESSES', 'FEATURED', 'Link\tURL\tStart\tEnd\tOwner', 'New Dresses\t/dresses/new/\t\t\tSam', 'Party Dresses\t/dresses/occasion/party/'
+  ].join('\n');
+  function emptyHtml(compact) {
+    return '<div class="empty-state"><div class="fw-semibold mb-1">Nothing here yet</div>' +
+      '<div class="small">Paste your nav content sheet in step 1' + (compact ? '' : ' and click Generate') + ', or try it with an example.</div>' +
+      '<button type="button" class="btn btn-sm btn-outline-primary" data-sample>Load sample data</button></div>';
+  }
+  function loadSample() { $('sheet').value = SAMPLE; parse(); toast('Sample data loaded'); }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('[data-sample]')) loadSample();
+  });
+  // briefly turn a button green with "Copied!" so the click visibly did something
+  function flash(btn) {
+    if (!btn) return;
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    clearTimeout(btn._ft);
+    btn.textContent = 'Copied ✓'; btn.classList.add('copied');
+    btn._ft = setTimeout(function () { btn.textContent = btn.dataset.label; btn.classList.remove('copied'); }, 1600);
+  }
+  function copyRich(html, text, msg, btn) {
+    var ok = function () { toast(msg); flash(btn); };
     var fb = function () {
       var d = document.createElement('div'); d.style.cssText = 'position:fixed;left:-9999px;top:0';
       d.innerHTML = html; document.body.appendChild(d);
       var rg = document.createRange(); rg.selectNodeContents(d);
       var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg);
-      document.execCommand('copy'); s.removeAllRanges(); d.remove(); toast(msg);
+      document.execCommand('copy'); s.removeAllRanges(); d.remove(); ok();
     };
     if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
       navigator.clipboard.write([new ClipboardItem({
         'text/html': new Blob([html], { type: 'text/html' }),
         'text/plain': new Blob([text], { type: 'text/plain' })
-      })]).then(function () { toast(msg); }, fb);
+      })]).then(ok, fb);
     } else fb();
   }
 
@@ -400,8 +447,8 @@
     el.innerHTML = '<div class="d-flex"><div class="toast-body">' + esc(msg) + '</div></div>';
     $('toast').appendChild(el); setTimeout(function () { el.remove(); }, 2200);
   }
-  function copy(text, msg) {
-    var done = function () { toast(msg); };
+  function copy(text, msg, btn) {
+    var done = function () { toast(msg); flash(btn); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
     } else { fallback(text); done(); }
@@ -419,6 +466,28 @@
   $('fullUrl').addEventListener('change', renderRows);
   $('hideFlagged').addEventListener('change', renderRows);
 
+  $('step1Toggle').addEventListener('click', function () {
+    setStep1(!$('step1Body').classList.contains('d-none'));
+  });
+  $('warnings').addEventListener('click', function (e) {
+    var a = e.target.closest('a.miss-link'); if (!a) return;
+    e.preventDefault();
+    var r = state.rows.filter(function (x) { return x.id == a.dataset.rid; })[0]; if (!r) return;
+    if (state.menu !== 'ALL' && state.menu !== r.menu) state.menu = r.menu;
+    $('hideFlagged').checked = false;
+    renderTabs(); renderRows();
+    var row = $('out').querySelector('.nav-item-row[data-rid="' + r.id + '"]'); if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('flash');
+    var inp = row.querySelector('.url-edit'); if (inp) inp.focus({ preventScroll: true });
+    setTimeout(function () { row.classList.remove('flash'); }, 1700);
+  });
+  $('out').addEventListener('click', function (e) {
+    var b = e.target.closest('.url-toggle'); if (!b) return;
+    var row = b.closest('.nav-item-row');
+    row.classList.toggle('open');
+    b.innerHTML = row.classList.contains('open') ? '&#9662;' : '&#9656;';
+  });
   $('menuTabs').addEventListener('click', function (e) {
     var a = e.target.closest('a[data-menu]'); if (!a) return;
     e.preventDefault(); state.menu = a.dataset.menu; renderTabs(); renderRows();
@@ -584,7 +653,13 @@
     copyRich(
       ds.map(wrikeTableHtml).join('<br>'),
       ds.map(wrikeTableText).join('\n\n'),
-      ds.length + ' table(s) copied');
+      ds.length + ' table(s) copied', $('copyWrikeAll'));
+  });
+  $('wrikePreviewToggle').addEventListener('click', function () {
+    var show = $('wrikePreview').classList.contains('d-none');
+    $('wrikePreview').classList.toggle('d-none', !show);
+    this.textContent = show ? 'Hide preview' : 'Show preview';
+    this.setAttribute('aria-expanded', String(show));
   });
   $('checkAll').addEventListener('change', function (e) {
     visible().forEach(function (r) { r.exclude = !e.target.checked; });
@@ -593,12 +668,12 @@
 
   $('copyTable').addEventListener('click', function () {
     var rows = selected();
-    copy([COLS.join('\t')].concat(rows.map(function (r) { return rowVals(r).join('\t'); })).join('\n'), rows.length + ' rows copied');
+    copy([COLS.join('\t')].concat(rows.map(function (r) { return rowVals(r).join('\t'); })).join('\n'), rows.length + ' rows copied', $('copyTable'));
   });
   $('copyUrls').addEventListener('click', function () {
     var rows = selected();
     rows = rows.filter(function (r) { return !r.missing; });
-    copy(rows.map(link).join('\n'), rows.length + ' URLs copied');
+    copy(rows.map(link).join('\n'), rows.length + ' URLs copied', $('copyTable'));
   });
   $('dlXlsx').addEventListener('click', function () {
     if (typeof ExcelJS === 'undefined') { toast('XLSX library failed to load (check internet connection)'); return; }
@@ -617,7 +692,24 @@
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = 'nav-tagging.csv'; a.click();
+    toast('CSV downloaded');
   });
+
+  /* minimize / expand the Detected groups table (remembered) */
+  (function () {
+    var btn = $('groupsToggle'), wrap = $('groupsWrap');
+    function set(min) {
+      wrap.classList.toggle('d-none', min);
+      btn.textContent = min ? 'Expand' : 'Minimize';
+      btn.setAttribute('aria-expanded', String(!min));
+    }
+    set(load('navTagger.groupsMin') === '1');
+    btn.addEventListener('click', function () {
+      var min = !wrap.classList.contains('d-none');
+      set(min); store('navTagger.groupsMin', min ? '1' : '0');
+    });
+  })();
+
 
   /* resizable Output | Wrike split (50/50 by default, remembered) */
   (function () {
@@ -661,6 +753,7 @@
     state.wrikeOff = s.wrikeOff || {}; state.wrikeNavOff = s.wrikeNavOff || {}; state.assets = s.assets || {};
     store('navTagger.sheet', $('sheet').value);
     renderGroups(); renderWarnings(); renderTabs(); renderRows(); renderWrikeControls();
+    setStep1(state.rows.length > 0);
   }
 
   // autosave the whole session in the browser (debounced); reopening the page restores it
@@ -669,7 +762,9 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       store('navTagger.project', JSON.stringify(snapshot()));
-      $('autosaveNote').textContent = 'Auto-saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      var note = $('autosaveNote');
+      note.classList.remove('pending');
+      note.textContent = 'Saved to this browser · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }, 500);
   }
   ['input', 'change', 'drop', 'click'].forEach(function (ev) {
@@ -684,7 +779,7 @@
     a.href = URL.createObjectURL(new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' }));
     a.download = 'nav-tagger-' + new Date().toISOString().slice(0, 10) + '.json';
     a.click();
-    toast('Project saved');
+    toast('Project saved to file');
   });
   $('loadProject').addEventListener('click', function () { $('loadFile').click(); });
   $('loadFile').addEventListener('change', function (e) {
@@ -704,6 +799,7 @@
     // only restore a session made by the current parser; older ones are re-parsed from the saved sheet
     if (proj) { try { var snap = JSON.parse(proj); if (snap.parser === T.PARSER_VERSION) { restore(snap); return; } } catch (err) { /* fall through */ } }
     var saved = load('navTagger.sheet');
-    if (saved) { $('sheet').value = saved; parse(); }
+    if (saved) { $('sheet').value = saved; parse(); return; }
+    renderRows(); renderWrikeControls(); // first visit: show the empty states
   })();
 })();
