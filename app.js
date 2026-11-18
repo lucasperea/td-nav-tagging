@@ -1,14 +1,23 @@
 (function () {
   'use strict';
   var T = window.Tagger;
-  var state = { rows: [], skipped: [], groups: {}, order: [], menu: 'ALL', wrikeOff: {}, wrikeNavOff: {}, assets: {} };
+  var state = { rows: [], skipped: [], groups: {}, order: [], menu: 'ALL', wrikeOff: {}, wrikeNavOff: {}, assets: {}, missIdx: -1 };
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   };
-  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function store(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+
+  // run a destructive change, then offer Undo (restores the whole session) instead of asking "are you sure?"
+  function undoable(msg, fn) {
+    var before = state.rows.length ? JSON.parse(JSON.stringify(snapshot())) : null;
+    fn();
+    if (before) toast(msg, function () { restore(before); toast('Restored'); });
+  }
+  function setBtnLabel(btn, t) { btn.dataset.label = t; if (!btn.classList.contains('copied')) btn.textContent = t; }
+  var wrikeLinks = 0;
   function load(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
 
   function base() { return $('fullUrl').checked ? 'https://www.torrid.com' : ''; }
@@ -19,7 +28,7 @@
     store('navTagger.sheet', text);
     var res = T.parseSheet(text);
     state.rows = res.rows; state.skipped = res.skipped;
-    state.groups = res.groups; state.order = res.groupOrder; state.menu = 'ALL';
+    state.groups = res.groups; state.order = res.groupOrder; state.menu = 'ALL'; state.missIdx = -1;
     renderGroups(); renderWarnings(); renderTabs(); renderRows(); renderWrikeControls();
     setStep1(state.rows.length > 0);
   }
@@ -27,52 +36,57 @@
   // collapse the paste box once links are generated; header shows a summary and toggles it back open
   function setStep1(collapsed) {
     $('step1Body').classList.toggle('d-none', collapsed);
+    $('step1Toggle').classList.toggle('d-none', !collapsed);
     $('step1Toggle').setAttribute('aria-expanded', String(!collapsed));
-    $('step1Caret').innerHTML = collapsed ? '&#9656;' : '&#9662;';
-    var menus = menusInOrder().length;
-    $('step1Summary').textContent = collapsed ? '\u2014 ' + state.rows.length + ' links in ' + menus + ' navigation' + (menus === 1 ? '' : 's') : '';
+    var n = state.rows.length;
+    $('step1Summary').textContent = collapsed ? n + ' link' + (n === 1 ? '' : 's') + ' pasted \u00b7' : '';
+    // steps 2 and 3 only matter once there is something to review
+    $('step2').classList.toggle('d-none', !n);
+    $('step3').classList.toggle('d-none', !n);
   }
 
+  // groups whose promo_position was guessed (not seen in existing nav markup) and not yet confirmed
+  function toConfirm() {
+    return state.order.filter(function (k) { var g = state.groups[k]; return g.known === false && !g.confirmed; });
+  }
+
+  // Menu / Section read as plain text; only the promo fields look editable. Guessed values get a dashed outline.
   function renderGroups() {
     if (!state.order.length) {
-      $('groups').innerHTML = '<tr><td colspan="6" class="text-muted">No link blocks detected. Make sure the header rows containing "URL" were included.</td></tr>';
+      $('groups').innerHTML = '<div class="caption py-2">No link blocks detected. Make sure the header rows containing "URL" were included.</div>';
       return;
     }
-    $('groups').innerHTML = state.order.map(function (k) {
-      var g = state.groups[k];
-      var n = state.rows.filter(function (r) { return r.group === k; }).length;
-      var nm = state.rows.filter(function (r) { return r.group === k && r.missing; }).length;
-      return '<tr' + (nm ? ' class="table-danger"' : '') + '><td><input class="form-control form-control-sm" data-mold="' + esc(g.menu) + '" title="Rename this navigation (applies to all its sections)" value="' + esc(g.menu) + '"></td><td>' + esc(g.section) + '</td><td class="text-end">' + n +
-        (nm ? ' <span class="badge text-bg-danger" title="' + nm + ' missing URL">' + nm + ' missing</span>' : '') + '</td>' +
-        '<td><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="id" value="' + esc(g.id) + '"></td>' +
-        '<td><div class="d-flex gap-1"><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="pos" value="' + esc(g.pos) + '">' +
-        '</div></td>' +
-        '<td><input class="form-control form-control-sm" data-g="' + esc(k) + '" data-f="namePrefix" value="' + esc(g.namePrefix) + '"></td></tr>';
-    }).join('');
+    var guessed = toConfirm();
+    $('groups').innerHTML = '<div class="group-row head"><span>Menu / Section</span><span>promo_id</span><span>promo_position</span><span>name prefix</span></div>' +
+      state.order.map(function (k) {
+        var g = state.groups[k];
+        var guess = guessed.indexOf(k) >= 0 ? ' guess' : '';
+        return '<div class="group-row"><div><input class="plain" data-mold="' + esc(g.menu) + '" title="Rename this navigation (applies to all its sections)" value="' + esc(g.menu) + '" aria-label="Menu name">' +
+          '<div class="group-sec">' + esc(g.section) + '</div></div>' +
+          '<input class="form-control" data-g="' + esc(k) + '" data-f="id" value="' + esc(g.id) + '" aria-label="promo_id">' +
+          '<input class="form-control' + guess + '" data-g="' + esc(k) + '" data-f="pos" value="' + esc(g.pos) + '" aria-label="promo_position"' + (guess ? ' title="Guessed - confirm or edit"' : '') + '>' +
+          '<input class="form-control" data-g="' + esc(k) + '" data-f="namePrefix" value="' + esc(g.namePrefix) + '" aria-label="name prefix"></div>';
+      }).join('');
   }
 
   function missingRows() { return state.rows.filter(function (r) { return r.missing; }); }
 
-  // A closed warning stays closed until its content changes (the key includes what it lists).
-  var dismissedWarn = {};
+  // One quiet status line instead of banners: "6 missing URLs \u00b7 4 to confirm". Missing jumps to the first one; Confirm all accepts guesses.
   function renderWarnings() {
-    var h = '';
-    var close = function (key) { return '<button type="button" class="btn-close" data-warn="' + esc(key) + '" aria-label="Close warning"></button>'; };
-    var miss = missingRows();
-    var mkey = 'miss:' + miss.map(function (r) { return r.id; }).join(',');
-    if (miss.length && !dismissedWarn[mkey]) {
-      h += '<div class="alert alert-danger py-2 mb-2 pe-5 position-relative"><strong>' + miss.length + ' link(s) missing a URL</strong> <span class="small">(click to jump to it):</span> ' +
-        miss.map(function (r) { return '<a href="#" class="miss-link" data-rid="' + r.id + '">' + esc(r.menu + ' > ' + r.section + ' > ' + r.label) + '</a>'; }).join(' &middot; ') +
-        close(mkey).replace('class="btn-close"', 'class="btn-close position-absolute top-0 end-0 m-2"') + '</div>';
+    var miss = missingRows(), conf = toConfirm(), parts = [];
+    if (state.missIdx >= miss.length) state.missIdx = miss.length - 1;
+    if (miss.length) {
+      var lbl = state.missIdx < 0 ? miss.length + ' missing URL' + (miss.length === 1 ? '' : 's') : (state.missIdx + 1) + ' of ' + miss.length + ' missing';
+      parts.push('<a href="#" class="miss-link" id="nextMiss"><span class="status-dot"></span>' + lbl + ' · Next →</a>');
     }
-    $('warnings').innerHTML = h;
+    if (conf.length) {
+      parts.push('<button type="button" class="link-btn" id="openConfirm" title="Show the guessed fields">' + conf.length + ' to confirm</button><button type="button" class="link-btn" id="confirmAll">Confirm all</button>');
+    }
+    if (state.skipped && state.skipped.length) {
+      parts.push('<span class="status-ok" title="' + esc(state.skipped.slice(0, 10).map(function (s) { return s.menu + ' > ' + s.section + ' > ' + s.label + ' (' + s.reason + ')'; }).join('\n')) + '">' + state.skipped.length + ' row' + (state.skipped.length === 1 ? '' : 's') + ' skipped</span>');
+    }
+    $('warnings').innerHTML = '<div class="status-line" role="status">' + (parts.length ? parts.join('<span class="status-ok">\u00b7</span>') : '<span class="status-ok">All set</span>') + '</div>';
   }
-  $('warnings').addEventListener('click', function (e) {
-    var b = e.target.closest ? e.target.closest('.btn-close[data-warn]') : null;
-    if (!b) return;
-    dismissedWarn[b.getAttribute('data-warn')] = true;
-    renderWarnings();
-  });
 
   function renderTabs() {
     var menus = [];
@@ -81,9 +95,9 @@
     $('menuTabs').innerHTML = items.map(function (m) {
       var inMenu = state.rows.filter(function (r) { return m === 'ALL' || r.menu === m; });
       var miss = inMenu.filter(function (r) { return r.missing; }).length;
-      return '<li class="nav-item"><a href="#" class="nav-link py-1 px-2' + (m === state.menu ? ' active' : '') + '" data-menu="' + esc(m) + '">' +
-        esc(m === 'ALL' ? 'All' : m) + ' <span class="tab-count">' + inMenu.length + '</span>' +
-        (miss ? '<span class="miss-dot" title="' + miss + ' link(s) missing a URL"></span>' : '') + '</a></li>';
+      return '<li role="presentation"><a href="#" role="tab" aria-selected="' + (m === state.menu) + '" class="' + (m === state.menu ? 'active' : '') + '" data-menu="' + esc(m) + '" title="' + inMenu.length + ' links">' +
+        esc(m === 'ALL' ? 'All' : m) +
+        (miss ? '<span class="miss-dot" aria-hidden="true"></span><span class="visually-hidden">, ' + miss + ' missing URL' + (miss === 1 ? '' : 's') + '</span>' : '') + '</a></li>';
     }).join('');
   }
 
@@ -114,23 +128,29 @@
 
   function itemHtml(r) {
     var flags = r.flags.filter(function (f) { return f !== 'NEW flag'; });
-    return '<div class="nav-item-row' + (r.missing ? ' missing' : '') + '" data-rid="' + r.id + '">' +
-      '<div class="d-flex align-items-center flex-wrap gap-1">' +
-        '<span class="drag-handle" title="Drag to reorder or move to another column">&#x2630;</span>' +
-        '<input type="checkbox" class="inc" data-id="' + r.id + '" title="Include" ' + (r.exclude ? '' : 'checked') + '>' +
-        (r.start ? '<span class="badge text-bg-light border" title="Start date">' + esc(r.start) + '</span>' : '') +
-        '<span class="fw-semibold">' + esc(r.label) + '</span>' +
-        '<label class="newflag small form-check form-switch ps-0" title="Append NEW to the link name"><input type="checkbox" role="switch" class="form-check-input isnew" data-id="' + r.id + '" ' + (r.isNew ? 'checked' : '') + '> NEW flag</label>' +
-        '<button type="button" class="url-toggle" title="Show / hide tagged URL">&#9656;</button>' +
-        flags.map(flagBadge).join('') +
+    // card = name + URL path only; tracking details, URL edit, NEW flag and tags open on expand (missing rows start open)
+    var cap = flags.map(function (f) { return esc(f); }).concat(r.start ? ['Starts ' + esc(r.start)] : []);
+    return '<div class="nav-item-row' + (r.missing ? ' missing open' : '') + '" data-rid="' + r.id + '">' +
+      '<div class="item-main">' +
+        '<span class="drag-handle" title="Drag to reorder or move to another column" aria-hidden="true">&#x2630;</span>' +
+        '<input type="checkbox" class="inc" data-id="' + r.id + '" aria-label="Include ' + esc(r.label) + '" title="Include" ' + (r.exclude ? '' : 'checked') + '>' +
+        '<span class="item-name">' + esc(r.label) + '</span>' +
+        '<label class="newflag form-check form-switch m-0" title="Append NEW to the link name (on when the sheet says New)"><input type="checkbox" role="switch" class="form-check-input isnew" data-id="' + r.id + '" ' + (r.isNew ? 'checked' : '') + '><span class="tag-pill">NEW</span></label>' +
+        (r.missing ? '<span class="miss-inline">Missing URL</span>' : '<span class="item-path" title="' + esc(r.path) + '">' + esc(r.path) + '</span>') +
+        '<span class="spacer"></span>' +
+        (cap.length ? '<span class="tag-pill">' + cap.join(' · ') + '</span>' : '') +
+        '<button type="button" class="chev url-toggle" aria-expanded="' + (r.missing ? 'true' : 'false') + '" aria-label="Show details for ' + esc(r.label) + '" title="Show / hide details">' + (r.missing ? '&#9662;' : '&#9656;') + '</button>' +
       '</div>' +
-      '<input class="form-control form-control-sm url-edit mt-1" data-id="' + r.id + '" title="Edit URL (press Enter or click away to apply)" ' +
-        'placeholder="Add URL, e.g. /featured/holiday-shop/" value="' + esc(r.missing ? '' : r.path + (r.query.length ? '?' + r.query.join('&') : '')) + '">' +
-      '<div class="url-cell' + (r.missing ? ' is-missing' : '') + '" id="u' + r.id + '">' + (r.missing ? '<span class="miss-label">- MISSING URL</span>' : '- ' + esc(link(r))) + '</div>' +
-      '<details class="small"><summary class="text-muted">tags</summary>' +
-        '<input class="form-control form-control-sm mb-1" data-r="' + r.id + '" data-f="catName" title="data-category_name" value="' + esc(r.catName) + '">' +
-        '<input class="form-control form-control-sm" data-r="' + r.id + '" data-f="promoName" title="promo_name" value="' + esc(r.promoName) + '">' +
-      '</details></div>';
+      '<div class="item-more">' +
+        '<input class="form-control url-edit" data-id="' + r.id + '" title="Edit URL (press Enter or click away to apply)" aria-label="URL" ' +
+          'placeholder="Add URL, e.g. /featured/holiday-shop/" value="' + esc(r.missing ? '' : r.path + (r.query.length ? '?' + r.query.join('&') : '')) + '">' +
+        '<div class="url-cell' + (r.missing ? ' is-missing' : '') + '" id="u' + r.id + '">' + (r.missing ? 'Missing URL' : esc(link(r))) + '</div>' +
+        '<div class="d-flex gap-2"><button type="button" class="btn btn-quiet mv-up">Move up</button><button type="button" class="btn btn-quiet mv-down">Move down</button></div>' +
+        '<details><summary>Tags</summary>' +
+          '<input class="form-control mb-2" data-r="' + r.id + '" data-f="catName" title="data-category_name" aria-label="data-category_name" value="' + esc(r.catName) + '">' +
+          '<input class="form-control" data-r="' + r.id + '" data-f="promoName" title="promo_name" aria-label="promo_name" value="' + esc(r.promoName) + '">' +
+        '</details>' +
+      '</div></div>';
   }
 
   /* ---------- per-nav asset (image + tagged destination link) ---------- */
@@ -153,11 +173,11 @@
   }
   // the four asset inputs; used in both the Output panel and the Wrike panel (kept in sync)
   function assetFieldsHtml(m, cls) {
-    return [['img', 'Asset image URL (CDN link or file name)'], ['url', 'Destination link, e.g. /featured/holiday-shop/'],
-      ['name', 'promo_name (default: from the matching link)'], ['pos', 'promo_position (default: Dropdown_' + T.pascal(m.toLowerCase()) + '_Banner)']]
+    return [['img', 'Image', 'CDN link or file name'], ['url', 'Destination link', 'e.g. /featured/holiday-shop/'],
+      ['name', 'promo_name', 'default: from the matching link'], ['pos', 'promo_position', 'default: Dropdown_' + T.pascal(m.toLowerCase()) + '_Banner']]
       .map(function (f) {
-        return '<input class="form-control form-control-sm wasset ' + cls + '" data-m="' + esc(m) + '" data-f="' + f[0] + '" placeholder="' + esc(f[1]) +
-          '" value="' + esc((state.assets[m] || {})[f[0]] || '') + '">';
+        return '<label class="asset-label caption">' + esc(f[1]) + '<input class="form-control form-control-sm wasset ' + cls + '" data-m="' + esc(m) + '" data-f="' + f[0] + '" placeholder="' + esc(f[2]) +
+          '" value="' + esc((state.assets[m] || {})[f[0]] || '') + '"></label>';
       }).join('');
   }
   // an asset input changed (in either panel): store it, mirror it to the other panel, refresh previews
@@ -210,20 +230,34 @@
   // user typed/pasted/cleared a URL on a link: update the row, then refresh everything that depends on it
   function applyUrlEdit(id, value) {
     var r = state.rows.filter(function (x) { return x.id == id; })[0]; if (!r) return;
-    var u = T.normalizeUrl(value);
-    r.flags = r.flags.filter(function (f) { return f !== 'Missing URL'; });
+    var u = T.normalizeUrl(value), wasMissing = r.missing;
+    r.flags =r.flags.filter(function (f) { return f !== 'Missing URL'; });
     if (!u) {
       r.missing = true; r.path = ''; r.query = []; r.flags.push('Missing URL');
     } else {
       r.missing = false; r.path = u.path; r.query = u.query;
       if (!r.catEdited) r.catName = T.defaultCatName(u.path);
     }
-    var pb = $('out').closest('.panel-body'), top = pb ? pb.scrollTop : 0;
+    var top = window.scrollY;
+    if (wasMissing && !r.missing && state.missIdx >= 0) state.missIdx--; // the fixed one drops out; Next lands on its successor
     renderGroups(); renderWarnings(); renderTabs(); renderRows();
-    if (pb) pb.scrollTop = top;
+    window.scrollTo(0, top);
   }
 
+  // Options that silently change the output get a visible note with a one-click way back
+  function renderFilterNote() {
+    var parts = [], hid = state.rows.filter(function (r) { return r.flags.some(function (f) { return /^Redirect|^Ended/.test(f); }); }).length;
+    if ($('hideFlagged').checked && hid) parts.push('Hiding ' + hid + ' redirect' + (hid === 1 ? '' : 's') + ' / ended <button type="button" class="link-btn" data-opt="hideFlagged">Show</button>');
+    if ($('fullUrl').checked) parts.push('Full URLs on <button type="button" class="link-btn" data-opt="fullUrl">Turn off</button>');
+    $('filterNote').innerHTML = parts.join(' · ');
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-opt]') : null; if (!b) return;
+    $(b.dataset.opt).checked = false; renderRows();
+  });
+
   function renderRows() {
+    renderFilterNote();
     var rows = visible();
     if (!state.rows.length) { $('out').innerHTML = emptyHtml(); renderWrikePreview(); return; }
     if (!rows.length) { $('out').innerHTML = '<div class="text-muted">No links to show.</div>'; renderWrikePreview(); return; }
@@ -232,8 +266,8 @@
       var mrows = rows.filter(function (r) { return r.menu === m; });
       if (!mrows.length) return;
       var miss = mrows.filter(function (r) { return r.missing; }).length;
-      html += '<div class="nav-menu"><div class="nav-menu-title' + (miss ? ' has-missing' : '') + '">' + esc(m) +
-        (miss ? ' <span class="badge text-bg-warning ms-1">' + miss + ' missing URL</span>' : '') + '</div><div class="nav-cols">';
+      html += '<div class="nav-menu"><div class="nav-menu-title">' + esc(m) +
+        (miss ? '<span class="miss-dot" title="' + miss + ' missing URL"></span>' : '') + '</div><div class="nav-cols">';
       state.order.forEach(function (k) {
         if (state.groups[k].menu !== m) return;
         var gr = mrows.filter(function (r) { return r.group === k; });
@@ -244,8 +278,8 @@
           '</div></div>';
       });
       html += '<div class="nav-asset"><div class="nav-sec-title">Asset</div>' +
-        assetFieldsHtml(m, 'mb-1') +
-        '<div class="url-cell small text-muted asset-preview" data-m="' + esc(m) + '">' + esc(assetTagged(m) || '(add a destination link to see the tagged URL)') + '</div>' +
+        assetFieldsHtml(m, '') +
+        '<div class="asset-preview" data-m="' + esc(m) + '">' + esc(assetTagged(m) || '(add a destination link to see the tagged URL)') + '</div>' +
         '<div class="asset-img mt-2" data-m="' + esc(m) + '"></div>' +
         '</div></div></div>';
     });
@@ -393,6 +427,18 @@
     var links = ds.reduce(function (n, d) { return n + d.cols.reduce(function (m, c) { return m + c.items.length; }, 0); }, 0);
     $('wrikeSummary').textContent = ds.length ? ds.length + ' table' + (ds.length === 1 ? '' : 's') + ' · ' + links + ' links ready to copy' : '';
     $('wrikePreviewToggle').classList.toggle('d-none', !ds.length);
+    wrikeLinks = links;
+    updateExport();
+  }
+
+  // primary button shows the count; a note warns about links with no URL; the sticky bar mirrors both
+  function updateExport() {
+    var miss = missingRows().length;
+    setBtnLabel($('copyWrikeAll'), wrikeLinks ? 'Copy ' + wrikeLinks + ' link' + (wrikeLinks === 1 ? '' : 's') + ' for Wrike' : 'Copy for Wrike');
+    $('exportNote').innerHTML = miss ? '<a href="#" class="miss-link" id="exportMiss"><span class="status-dot"></span>' + miss + ' link' + (miss === 1 ? ' has' : 's have') + ' no URL</a>' +
+      ' <span class="caption">&middot; "Copy URLs only" skips them</span>' : '';
+    $('stickySummary').textContent = state.rows.length + ' links' + (miss ? ' · ' + miss + ' missing' : '');
+    setBtnLabel($('stickyCopy'), wrikeLinks ? 'Copy ' + wrikeLinks : 'Copy');
   }
 
   /* ---------- empty state + sample data ---------- */
@@ -406,7 +452,7 @@
       '<div class="small">Paste your nav content sheet in step 1' + (compact ? '' : ' and click Generate') + ', or try it with an example.</div>' +
       '<button type="button" class="btn btn-sm btn-outline-primary" data-sample>Load sample data</button></div>';
   }
-  function loadSample() { $('sheet').value = SAMPLE; parse(); toast('Sample data loaded'); }
+  function loadSample() { undoable('Sample data loaded', function () { $('sheet').value = SAMPLE; parse(); }); }
   document.addEventListener('click', function (e) {
     if (e.target.closest && e.target.closest('[data-sample]')) loadSample();
   });
@@ -441,11 +487,13 @@
     var g = state.groups[r.group];
     return [r.menu, r.section, r.label, link(r), r.catName, g.id, r.promoName, 'TextOnly', g.pos, r.start, r.end, r.owner, r.flags.join('; ')];
   }
-  function toast(msg) {
+  function toast(msg, undo) {
     var el = document.createElement('div');
     el.className = 'toast show align-items-center text-bg-dark border-0';
-    el.innerHTML = '<div class="d-flex"><div class="toast-body">' + esc(msg) + '</div></div>';
-    $('toast').appendChild(el); setTimeout(function () { el.remove(); }, 2200);
+    el.innerHTML = '<div class="d-flex align-items-center"><div class="toast-body">' + esc(msg) + '</div>' +
+      (undo ? '<button type="button" class="link-btn toast-undo me-2">Undo</button>' : '') + '</div>';
+    if (undo) el.querySelector('.toast-undo').addEventListener('click', function () { el.remove(); undo(); });
+    $('toast').appendChild(el); setTimeout(function () { el.remove(); }, undo ? 8000 : 2200);
   }
   function copy(text, msg, btn) {
     var done = function () { toast(msg); flash(btn); };
@@ -460,19 +508,40 @@
   function csvCell(v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
 
   /* ---------- events ---------- */
-  $('parse').addEventListener('click', parse);
-  $('sheet').addEventListener('paste', function () { setTimeout(parse, 50); });
-  $('clear').addEventListener('click', function () { $('sheet').value = ''; store('navTagger.sheet', ''); parse(); });
+  function regenerate() { undoable('Regenerated · your edits were reset', parse); }
+  $('parse').addEventListener('click', regenerate);
+  $('sheet').addEventListener('paste', function () { setTimeout(regenerate, 50); });
+  $('clear').addEventListener('click', function () {
+    undoable('Sheet cleared', function () { $('sheet').value = ''; store('navTagger.sheet', ''); parse(); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !$('step1Body').classList.contains('d-none')) { e.preventDefault(); regenerate(); }
+  });
   $('fullUrl').addEventListener('change', renderRows);
   $('hideFlagged').addEventListener('change', renderRows);
 
   $('step1Toggle').addEventListener('click', function () {
     setStep1(!$('step1Body').classList.contains('d-none'));
   });
-  $('warnings').addEventListener('click', function (e) {
-    var a = e.target.closest('a.miss-link'); if (!a) return;
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.id === 'confirmAll') {
+      state.order.forEach(function (k) { state.groups[k].confirmed = true; });
+      renderGroups(); renderWarnings(); toast('All guesses confirmed');
+      return;
+    }
+    if (t.id === 'openConfirm') { // reveal the guessed fields instead of confirming blind
+      var d = $('groupsDetails'); d.open = true;
+      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    var a = t.closest ? t.closest('a.miss-link') : null; if (!a) return;
     e.preventDefault();
-    var r = state.rows.filter(function (x) { return x.id == a.dataset.rid; })[0]; if (!r) return;
+    var miss = missingRows(); if (!miss.length) return;
+    var r;
+    if (a.id === 'nextMiss') { state.missIdx = (state.missIdx + 1) % miss.length; r = miss[state.missIdx]; }
+    else { r = miss[0]; state.missIdx = 0; } // from the export note: start at the first
+    renderWarnings();
     if (state.menu !== 'ALL' && state.menu !== r.menu) state.menu = r.menu;
     $('hideFlagged').checked = false;
     renderTabs(); renderRows();
@@ -483,10 +552,26 @@
     setTimeout(function () { row.classList.remove('flash'); }, 1700);
   });
   $('out').addEventListener('click', function (e) {
+    var mv = e.target.closest('.mv-up, .mv-down');
+    if (mv) { // keyboard / touch alternative to drag & drop: swap with the neighbour in the same column
+      var cur = mv.closest('.nav-item-row'), up = mv.classList.contains('mv-up');
+      var nb = up ? cur.previousElementSibling : cur.nextElementSibling;
+      if (!nb || !nb.classList.contains('nav-item-row')) { toast(up ? 'Already first in this column' : 'Already last in this column'); return; }
+      var id = cur.dataset.rid, cls = up ? '.mv-up' : '.mv-down';
+      moveRow(id, nb.dataset.rid, !up);
+      var top = window.scrollY;
+      renderRows(); renderWrikeControls();
+      window.scrollTo(0, top);
+      var again = $('out').querySelector('.nav-item-row[data-rid="' + id + '"]');
+      if (again) { again.classList.add('open'); var ch = again.querySelector('.url-toggle'); if (ch) { ch.innerHTML = '&#9662;'; ch.setAttribute('aria-expanded', 'true'); } var nbtn = again.querySelector(cls); if (nbtn) nbtn.focus({ preventScroll: true }); }
+      return;
+    }
     var b = e.target.closest('.url-toggle'); if (!b) return;
     var row = b.closest('.nav-item-row');
     row.classList.toggle('open');
-    b.innerHTML = row.classList.contains('open') ? '&#9662;' : '&#9656;';
+    var isOpen = row.classList.contains('open');
+    b.innerHTML = isOpen ? '&#9662;' : '&#9656;';
+    b.setAttribute('aria-expanded', String(isOpen));
   });
   $('menuTabs').addEventListener('click', function (e) {
     var a = e.target.closest('a[data-menu]'); if (!a) return;
@@ -540,7 +625,7 @@
     r[t.dataset.f] = t.value.trim();
     if (t.dataset.f === 'catName') r.catEdited = true;
     if (t.dataset.f === 'promoName') r.nameEdited = true;
-    if (!r.missing) $('u' + r.id).textContent = '- ' + link(r);
+    if (!r.missing) $('u' + r.id).textContent = link(r);
     renderWrikePreview();
   });
   $('out').addEventListener('change', function (e) {
@@ -622,9 +707,9 @@
       }
       if (tgt) moved.blk = tgt.blk;
     }
-    var pb = $('out').closest('.panel-body'), top = pb ? pb.scrollTop : 0;
+    var top = window.scrollY;
     renderGroups(); renderRows(); renderWrikeControls();
-    if (pb) pb.scrollTop = top;
+    window.scrollTo(0, top);
   });
   $('out').addEventListener('dragend', function () {
     dragId = null; clearDrop();
@@ -643,9 +728,6 @@
       renderWrikeControls();
       return;
     }
-    if (!e.target.classList.contains('wcol')) return;
-    state.wrikeOff[e.target.dataset.k] = !e.target.checked;
-    renderWrikePreview();
   });
   $('copyWrikeAll').addEventListener('click', function () {
     var ds = menusInOrder().map(wrikeData).filter(Boolean);
@@ -658,7 +740,7 @@
   $('wrikePreviewToggle').addEventListener('click', function () {
     var show = $('wrikePreview').classList.contains('d-none');
     $('wrikePreview').classList.toggle('d-none', !show);
-    this.textContent = show ? 'Hide preview' : 'Show preview';
+    this.textContent = show ? 'Hide Wrike preview' : 'Show Wrike preview';
     this.setAttribute('aria-expanded', String(show));
   });
   $('checkAll').addEventListener('change', function (e) {
@@ -670,6 +752,13 @@
     var rows = selected();
     copy([COLS.join('\t')].concat(rows.map(function (r) { return rowVals(r).join('\t'); })).join('\n'), rows.length + ' rows copied', $('copyTable'));
   });
+  $('stickyCopy').addEventListener('click', function () { $('copyWrikeAll').click(); });
+  // slim bar stays reachable while reviewing; hides itself when the Export step is on screen (one primary button at a time)
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (en) {
+      $('stickyBar').classList.toggle('show', !en[0].isIntersecting && state.rows.length > 0);
+    }).observe($('step3'));
+  }
   $('copyUrls').addEventListener('click', function () {
     var rows = selected();
     rows = rows.filter(function (r) { return !r.missing; });
@@ -695,38 +784,7 @@
     toast('CSV downloaded');
   });
 
-  /* minimize / expand the Detected groups table (remembered) */
-  (function () {
-    var btn = $('groupsToggle'), wrap = $('groupsWrap');
-    function set(min) {
-      wrap.classList.toggle('d-none', min);
-      btn.textContent = min ? 'Expand' : 'Minimize';
-      btn.setAttribute('aria-expanded', String(!min));
-    }
-    set(load('navTagger.groupsMin') === '1');
-    btn.addEventListener('click', function () {
-      var min = !wrap.classList.contains('d-none');
-      set(min); store('navTagger.groupsMin', min ? '1' : '0');
-    });
-  })();
-
-
-  /* resizable Output | Wrike split (50/50 by default, remembered) */
-  (function () {
-    var split = $('split'), bar = $('splitter'), dragging = false;
-    function setLeft(p) { p = Math.max(15, Math.min(85, p)); split.style.setProperty('--left', p + '%'); return p; }
-    var sp = parseFloat(load('navTagger.split')); if (sp) setLeft(sp);
-    function end() { dragging = false; bar.classList.remove('drag'); }
-    bar.addEventListener('pointerdown', function (e) { dragging = true; bar.classList.add('drag'); bar.setPointerCapture(e.pointerId); e.preventDefault(); });
-    bar.addEventListener('pointermove', function (e) {
-      if (!dragging) return;
-      var rect = split.getBoundingClientRect();
-      store('navTagger.split', setLeft((e.clientX - rect.left) / rect.width * 100));
-    });
-    bar.addEventListener('pointerup', end);
-    bar.addEventListener('pointercancel', end);
-    bar.addEventListener('dblclick', function () { store('navTagger.split', setLeft(50)); });
-  })();
+  /* "Detected groups" is now a "Show details" disclosure in the Review step (no splitter / nested scroll) */
 
   /* ---------- save / load ---------- */
   // Everything needed to pick up where you left off: pasted sheet, switches, every link with its edits
@@ -761,10 +819,13 @@
   function autosave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
-      store('navTagger.project', JSON.stringify(snapshot()));
+      var ok = store('navTagger.project', JSON.stringify(snapshot()));
       var note = $('autosaveNote');
       note.classList.remove('pending');
-      note.textContent = 'Saved to this browser · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      note.classList.toggle('fail', !ok);
+      note.textContent = ok ? 'Saved' : 'Not saved';
+      if (!ok) { note.title = 'This browser blocked or filled its storage. Use Project > Save to file to keep your work.'; return; }
+      note.title = 'Saved in this browser at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }, 500);
   }
   ['input', 'change', 'drop', 'click'].forEach(function (ev) {
@@ -800,6 +861,6 @@
     if (proj) { try { var snap = JSON.parse(proj); if (snap.parser === T.PARSER_VERSION) { restore(snap); return; } } catch (err) { /* fall through */ } }
     var saved = load('navTagger.sheet');
     if (saved) { $('sheet').value = saved; parse(); return; }
-    renderRows(); renderWrikeControls(); // first visit: show the empty states
+    renderRows(); renderWrikeControls(); setStep1(false); // first visit: show the empty state
   })();
 })();

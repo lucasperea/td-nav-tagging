@@ -6,323 +6,382 @@
     <title>Navigation Tagger</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
     <style>
+      /* ---------- tokens: 3 type sizes, 8px spacing, one accent ---------- */
+      :root {
+        --accent: #0071e3;
+        --accent-hover: #0060c0;
+        --ink: #1d1d1f;
+        --muted: #6e6e73;
+        --line: #e8e8ed;
+        --bg: #fbfbfd;
+        --card: #fff;
+        --err: #d70015;
+        --fs-title: 28px;
+        --fs-body: 15px;
+        --fs-caption: 13px;
+        --bs-primary: #0071e3;
+        --bs-primary-rgb: 0, 113, 227;
+        --bs-link-color: #0071e3;
+        --bs-link-hover-color: #0060c0;
+        --bs-body-font-size: 15px;
+        --bs-body-color: #1d1d1f;
+      }
       body {
-        background: #f6f7f9;
-        font-size: 0.9375rem;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: var(--fs-body);
+        line-height: 1.6;
       }
-      /* WCAG AA: Bootstrap's muted gray is borderline on white, so darken it */
-      .text-muted {
-        color: #565e66 !important;
-      }
+      .text-muted,
       .small,
       small {
-        font-size: 0.8125rem;
+        color: var(--muted) !important;
+        font-size: var(--fs-caption);
       }
-      /* Output | Wrike side by side, 50/50 by default; drag the splitter to resize, drag the bottom-right corner for height */
-      #split {
+      .page {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 40px clamp(24px, 4vw, 64px) 120px;
+      }
+      h1.title {
+        font-size: var(--fs-title);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0;
+      }
+      .caption {
+        font-size: var(--fs-caption);
+        color: var(--muted);
+      }
+      .step {
+        margin-top: 48px;
+      }
+      .step-head {
         display: flex;
-        height: 80vh;
-        min-height: 320px;
-        overflow: hidden;
-        resize: vertical;
-        --left: 50%;
+        align-items: baseline;
+        gap: 16px;
+        margin-bottom: 16px;
       }
-      #split .panel {
+      .step-head h2 {
+        font-size: var(--fs-body);
+        font-weight: 600;
+        margin: 0;
+      }
+      .step-summary {
+        color: var(--muted);
+        font-size: var(--fs-body);
+      }
+
+      /* ---------- buttons: one filled button at a time, everything else quiet ---------- */
+      .btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 0 20px;
+        border-radius: 980px;
+        font-size: var(--fs-body);
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .btn:focus-visible,
+      .link-btn:focus-visible,
+      .seg a:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .btn-primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .btn-primary:hover,
+      .btn-primary:focus {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      .btn-primary.copied,
+      .btn-primary.copied:hover {
+        background: #248a3d;
+        border-color: #248a3d;
+      }
+      .btn-quiet {
+        background: transparent;
+        border: 0;
+        color: var(--accent);
+        padding: 0 12px;
+      }
+      .btn-quiet:hover {
+        background: rgba(0, 113, 227, 0.08);
+        color: var(--accent);
+      }
+      .btn-split {
+        display: inline-flex;
+      }
+      .btn-split .btn:first-child {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+      .btn-split .btn:last-child {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-left: 1px solid rgba(255, 255, 255, 0.4);
+        padding: 0 14px;
+      }
+      .link-btn {
+        background: none;
+        border: 0;
+        padding: 0 4px;
+        min-height: 44px;
+        color: var(--accent);
+        font-size: inherit;
+        cursor: pointer;
+      }
+      .link-btn:hover {
+        text-decoration: underline;
+      }
+      .dropdown-menu {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        padding: 8px;
+        font-size: var(--fs-body);
+      }
+      .dropdown-item {
+        min-height: 44px;
+        border-radius: 8px;
         display: flex;
-        flex-direction: column;
-        min-width: 0;
-        overflow: hidden;
+        align-items: center;
+        gap: 8px;
       }
-      #panelOut {
-        flex: 0 0 var(--left);
+      .dropdown-item:hover {
+        background: #f5f5f7;
       }
-      #panelWrike {
-        flex: 1 1 0;
+      .opt-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        min-height: 44px;
+        margin: 0;
+        cursor: pointer;
       }
-      #split .panel-body {
+
+      /* ---------- header + save status ---------- */
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .top .grow {
         flex: 1;
-        overflow: auto;
-        min-height: 0;
       }
-      #splitter {
-        flex: 0 0 10px;
-        cursor: col-resize;
-        margin: 0 2px;
-        border-radius: 4px;
-        background: #dfe3e8;
+      #autosaveNote {
+        font-size: var(--fs-caption);
+        color: var(--muted);
+        transition: opacity 0.4s;
+        opacity: 0.7;
       }
-      #splitter:hover,
-      #splitter.drag {
-        background: #c13564;
+      #autosaveNote.pending {
+        opacity: 0;
       }
-      @media (max-width: 991px) {
-        #split {
-          flex-direction: column;
-          height: auto;
-          resize: none;
-          overflow: visible;
-        }
-        #panelOut,
-        #panelWrike {
-          flex: 0 0 auto;
-          margin-bottom: 1rem;
-        }
-        #splitter {
-          display: none;
-        }
+
+      /* ---------- step 1 ---------- */
+      #sheet {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: var(--fs-caption);
+        white-space: pre;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        background: var(--card);
+        box-shadow: none;
       }
-      .wrike-menu.off {
-        opacity: 0.45;
+      #sheet:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
       }
-      .wrike-nav {
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid #dee2e6;
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .actions .grow {
+        flex: 1;
+      }
+
+      /* ---------- status line ---------- */
+      .status-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 16px;
+        margin-bottom: 24px;
+        min-height: 44px;
+      }
+      .status-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--err);
+        margin-right: 8px;
+      }
+      .status-ok {
+        color: var(--muted);
+      }
+
+      /* ---------- segmented control (menu tabs) ---------- */
+      .seg {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 4px;
+        margin: 0 0 24px;
+        background: #f0f0f3;
+        border-radius: 12px;
+        list-style: none;
+      }
+      .seg a {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 36px;
+        padding: 0 16px;
+        border-radius: 8px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: var(--fs-body);
+        white-space: nowrap;
+      }
+      .seg a:hover {
+        color: var(--ink);
+      }
+      .seg a.active {
+        background: var(--card);
+        color: var(--ink);
+        font-weight: 600;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+      }
+      .miss-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--err);
+        margin-left: 4px;
+      }
+
+      /* ---------- review: menus -> sections -> link cards ---------- */
+      .nav-menu {
+        margin-bottom: 48px;
+      }
+      .nav-menu-title {
+        font-size: var(--fs-body);
+        font-weight: 600;
+        margin-bottom: 16px;
+      }
+      .nav-cols {
+        display: flex;
+        gap: 32px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .nav-sec {
+        flex: 0 0 auto;
+      }
+      .nav-sec-title {
+        font-size: var(--fs-caption);
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .nav-sec-title.has-missing::after {
+        content: "";
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--err);
+        margin-left: 8px;
+        vertical-align: middle;
+      }
+      .nav-sec-cols {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .nav-col {
+        width: 320px;
+      }
+      .nav-item-row {
+        padding: 8px 16px;
+        margin-bottom: 8px;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: 0 0 0 1px var(--line);
+        font-size: var(--fs-body);
+      }
+      .nav-item-row:hover {
+        box-shadow: 0 0 0 1px #d2d2d7;
+      }
+      .nav-item-row.missing {
+        box-shadow: 0 0 0 1px var(--err);
+      }
+      .item-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+      }
+      .item-name {
+        font-weight: 500;
+      }
+      .item-path {
+        color: var(--muted);
+        font-size: var(--fs-caption);
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .item-main .spacer {
+        flex: 1;
+      }
+      .miss-inline {
+        color: var(--err);
+        font-size: var(--fs-caption);
+      }
+      .tag-pill {
+        color: var(--muted);
+        font-size: var(--fs-caption);
       }
       .drag-handle {
         cursor: grab;
-        color: #5c636a;
+        color: #aeaeb2;
         user-select: none;
-        padding: 0 2px;
+        padding: 0 4px;
+        font-size: var(--fs-body);
       }
       .drag-handle:hover {
-        color: #c13564;
+        color: var(--ink);
       }
       .nav-item-row.dragging {
         opacity: 0.4;
       }
       .nav-item-row.drop-above {
-        box-shadow: 0 -3px 0 #c13564;
+        box-shadow: 0 -3px 0 var(--accent);
       }
       .nav-item-row.drop-below {
-        box-shadow: 0 3px 0 #c13564;
-      }
-      .nav-item-row .url-edit {
-        font-family: ui-monospace, Consolas, monospace;
-        font-size: 0.8125rem;
-      }
-      .brand {
-        color: #c13564;
-      }
-      #sheet {
-        font-family: ui-monospace, Consolas, monospace;
-        font-size: 0.875rem;
-        white-space: pre;
-      }
-      .url-cell {
-        font-family: ui-monospace, Consolas, monospace;
-        font-size: 0.8125rem;
-        word-break: break-all;
-        min-width: 340px;
-      }
-      td input.form-control {
-        font-size: 0.875rem;
-        min-width: 150px;
-      }
-      .table-wrap {
-        max-height: 70vh;
-        overflow: auto;
-      }
-      .table-wrap thead th {
-        position: sticky;
-        top: 0;
-        background: #fff;
-        z-index: 1;
-      }
-      .flag {
-        font-size: 0.65rem;
-      }
-      .group-block {
-        margin-bottom: 1.25rem;
-      }
-      .group-title {
-        font-weight: 600;
-        padding: 0.35rem 0.75rem;
-        background: #c13564;
-        color: #fff;
-        border-radius: 0.375rem 0.375rem 0 0;
-      }
-      .group-title.has-missing {
-        background: #b02a37;
-      }
-      .grid-wrap {
-        overflow-x: auto;
-        border: 1px solid #dee2e6;
-        border-top: 0;
-        background: #fff;
-      }
-      table.grid {
-        margin: 0;
-        width: max-content;
-        min-width: 100%;
-      }
-      table.grid th.rowhead {
-        position: sticky;
-        left: 0;
-        background: #edeff2;
-        z-index: 1;
-        min-width: 150px;
-        font-size: 0.8125rem;
-        white-space: nowrap;
-      }
-      table.grid td {
-        min-width: 230px;
-        max-width: 320px;
-        vertical-align: top;
-        font-size: 0.875rem;
-      }
-      table.grid td.missing {
-        background: #f8d7da !important;
-        box-shadow: inset 0 0 0 1px #dc3545;
-      }
-      table.grid td.missing .miss-label {
-        color: #b02a37;
-        font-weight: 700;
-      }
-      .nav-menu {
-        margin-bottom: 1.25rem;
-        border: 1px solid #dee2e6;
-        border-radius: 0.375rem;
-        background: #fff;
-      }
-      .nav-menu-title {
-        font-weight: 700;
-        padding: 0.35rem 0.75rem;
-        background: #c13564;
-        color: #fff;
-        border-radius: 0.375rem 0.375rem 0 0;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .nav-menu-title.has-missing {
-        background: #b02a37;
-      }
-      .nav-cols {
-        display: flex;
-        gap: 2rem;
-        padding: 0.75rem;
-        overflow-x: auto;
-        align-items: flex-start;
-      }
-      .nav-sec {
-        flex: 0 0 auto;
-      }
-      .nav-sec-cols {
-        display: flex;
-        gap: 1.25rem;
-      }
-      .nav-col {
-        width: 300px;
-      }
-      .nav-asset {
-        flex: 0 0 260px;
-        margin-left: auto;
-      }
-      .nav-sec-title {
-        font-weight: 700;
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        border-bottom: 1px solid #ccc;
-        padding-bottom: 2px;
-        margin-bottom: 0.4rem;
-      }
-      .nav-sec-title.has-missing {
-        color: #b02a37;
-        border-bottom-color: #dc3545;
-      }
-      .nav-item-row {
-        padding: 3px 4px;
-        margin-bottom: 4px;
-        border-radius: 4px;
-        font-size: 0.875rem;
-      }
-      .nav-item-row .newflag {
-        color: #c13564;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .nav-item-row .url-cell {
-        min-width: 0;
-        font-size: 0.8125rem;
-        color: #3d444b;
-      }
-      .nav-item-row.missing {
-        background: #f8d7da;
-        box-shadow: inset 0 0 0 1px #dc3545;
-      }
-      .nav-item-row .miss-label {
-        color: #b02a37;
-        font-weight: 700;
-      }
-      .nav-item-row summary {
-        cursor: pointer;
-        font-size: 0.8125rem;
-      }
-      #wrikePreview {
-        overflow-x: auto;
-      }
-      table.wrike {
-        width: max-content;
-        min-width: 100%;
-        border-collapse: collapse;
-        background: #fff;
-        font-size: 0.8125rem;
-      }
-      table.wrike th,
-      table.wrike td {
-        border: 1px solid #adb5bd;
-        padding: 6px 8px;
-        vertical-align: top;
-        white-space: nowrap;
-      }
-      table.wrike th {
-        background: #edeff2;
-      }
-      table.wrike .miss {
-        color: #b02a37;
-        font-weight: 700;
-      }
-      .wrike-menu {
-        border: 1px solid #dee2e6;
-        border-radius: 0.375rem;
-        padding: 0.5rem 0.75rem;
-        margin-bottom: 0.5rem;
-        background: #fff;
-      }
-      #menuTabs {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        gap: 2px;
-        --bs-nav-pills-link-active-bg: #e9ecef;
-        --bs-nav-pills-link-active-color: #212529;
-      }
-      #menuTabs .nav-link {
-        color: #495057;
-        white-space: nowrap;
-      }
-      #menuTabs .nav-link.active {
-        font-weight: 600;
-      }
-      #menuTabs .tab-count {
-        color: #5c636a;
-        font-size: 0.75em;
-      }
-      .miss-dot {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #dc3545;
-        margin-left: 4px;
-        vertical-align: middle;
-      }
-      .miss-link {
-        color: #b02a37;
-        text-decoration: underline;
-        cursor: pointer;
-      }
-      .miss-link:hover {
-        color: #7a1b25;
+        box-shadow: 0 3px 0 var(--accent);
       }
       .nav-item-row.flash {
         animation: rowflash 1.6s ease-out;
@@ -330,214 +389,405 @@
       @keyframes rowflash {
         0%,
         40% {
-          background: #fff3cd;
-          box-shadow: inset 0 0 0 2px #ffc107;
+          background: #e8f2ff;
         }
         100% {
+          background: var(--card);
         }
       }
-      /* tagged URL: hidden until row is hovered or expanded (missing-URL label always shows) */
-      .nav-item-row .url-cell:not(.is-missing) {
+      .item-more {
         display: none;
+        padding: 8px 0 8px 32px;
       }
-      .nav-item-row:hover .url-cell,
-      .nav-item-row.open .url-cell {
-        display: block !important;
+      .nav-item-row.open .item-more {
+        display: block;
       }
-      .url-toggle {
-        border: 0;
-        background: none;
-        color: #5c636a;
-        font-size: 0.8125rem;
-        padding: 0 3px;
-        line-height: 1;
+      .item-more .url-edit,
+      .item-more .form-control,
+      .wasset {
+        font-size: var(--fs-caption);
+        min-height: 44px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
       }
-      .url-toggle:hover,
-      .nav-item-row.open .url-toggle {
-        color: #c13564;
+      .item-more .url-edit {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
       }
-      .nav-item-row .newflag {
-        display: inline-flex;
+      .item-more .url-cell {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: var(--fs-caption);
+        color: var(--muted);
+        word-break: break-all;
+        margin: 8px 0;
+      }
+      .item-more .url-cell.is-missing {
+        color: var(--err);
+      }
+      .item-more label {
+        display: flex;
         align-items: center;
-        gap: 4px;
-        margin: 0;
-      }
-      .nav-item-row .newflag .form-check-input {
+        gap: 8px;
+        min-height: 44px;
         margin: 0;
         cursor: pointer;
-        float: none;
       }
-      #step1Toggle {
-        text-decoration: none;
-      }
-      .nav-sec-title {
-        font-size: 0.8125rem;
-      }
-      .flag {
-        font-size: 0.75rem;
-      }
-      #autosaveNote {
+      .item-more details summary {
+        cursor: pointer;
+        min-height: 44px;
+        display: flex;
         align-items: center;
-        gap: 6px;
-        padding: 2px 10px;
-        border: 1px solid #b7dfc3;
-        background: #e8f6ed;
-        color: #14532d;
-        border-radius: 999px;
-        font-size: 0.8125rem;
+        color: var(--muted);
+        font-size: var(--fs-caption);
+      }
+      .chev {
+        border: 0;
+        background: none;
+        min-width: 44px;
+        min-height: 44px;
+        color: var(--muted);
+        font-size: var(--fs-caption);
+        border-radius: 8px;
+      }
+      .chev:hover {
+        background: #f5f5f7;
+        color: var(--ink);
+      }
+      input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+        accent-color: var(--accent);
+      }
+      .form-check-input:checked {
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
+      .nav-asset {
+        flex: 0 0 280px;
+      }
+      .newflag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        padding-left: 0;
+        cursor: pointer;
+      }
+      .newflag .form-check-input {
+        float: none;
+        margin: 0;
+        width: 2.25em;
+        height: 1.25em;
+      }
+      .item-path {
+        flex: 0 1 auto;
+      }
+      .item-main {
+        flex-wrap: wrap;
+      }
+      .nav-asset .wasset {
+        margin-bottom: 8px;
+      }
+      .asset-preview {
+        word-break: break-all;
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: var(--fs-caption);
+        color: var(--muted);
+      }
+      .select-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        margin-bottom: 16px;
+        color: var(--muted);
+        font-size: var(--fs-caption);
+      }
+
+      /* ---------- groups (plain Menu / Section text; only promo fields look editable) ---------- */
+      details.disclosure > summary {
+        cursor: pointer;
+        color: var(--accent);
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        list-style: none;
+        font-size: var(--fs-body);
+      }
+      details.disclosure > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.disclosure > summary::before {
+        content: "\25B8";
+        margin-right: 8px;
+        font-size: var(--fs-caption);
+      }
+      details.disclosure[open] > summary::before {
+        content: "\25BE";
+      }
+      .group-row {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr 1fr;
+        gap: 16px;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .group-row.head {
+        color: var(--muted);
+        font-size: var(--fs-caption);
+        border-bottom-color: var(--line);
+      }
+      .group-row .plain {
+        font-weight: 500;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        min-height: 44px;
+        font-size: var(--fs-body);
+        width: 100%;
+        border-radius: 8px;
+      }
+      .group-row .plain:hover {
+        background: #f5f5f7;
+      }
+      .group-row .plain:focus {
+        background: var(--card);
+        box-shadow: 0 0 0 1px var(--accent);
+        padding: 0 8px;
+      }
+      .group-row .form-control {
+        min-height: 44px;
+        font-size: var(--fs-caption);
+        border-radius: 8px;
+        border: 1px solid var(--line);
+      }
+      .group-row .form-control.guess {
+        border-style: dashed;
+        background: #fafafc;
+      }
+      .group-sec {
+        color: var(--muted);
+        font-size: var(--fs-body);
+      }
+      @media (max-width: 720px) {
+        .group-row {
+          grid-template-columns: 1fr 1fr;
+        }
+        .group-row.head {
+          display: none;
+        }
+      }
+
+      /* ---------- export ---------- */
+      .export-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .wrike-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 24px;
+        margin-bottom: 16px;
+      }
+      .wrike-nav label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        margin: 0;
+        cursor: pointer;
+      }
+      #wrikePreview {
+        overflow-x: auto;
+        margin-top: 16px;
+        padding: 16px;
+        background: var(--card);
+        border-radius: 12px;
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      table.wrike {
+        width: max-content;
+        min-width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        font-size: var(--fs-caption);
+      }
+      table.wrike th,
+      table.wrike td {
+        border: 1px solid #d2d2d7;
+        padding: 8px;
+        vertical-align: top;
         white-space: nowrap;
       }
-      #autosaveNote::before {
-        content: "";
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #198754;
+      table.wrike th {
+        background: #f5f5f7;
       }
-      #autosaveNote.pending {
-        border-color: #dee2e6;
-        background: #fff;
-        color: #565e66;
-      }
-      #autosaveNote.pending::before {
-        background: #adb5bd;
-      }
+
+      /* ---------- empty state ---------- */
       .empty-state {
         text-align: center;
-        padding: 2rem 1rem;
-        color: #565e66;
+        padding: 48px 16px;
+        color: var(--muted);
+      }
+      .empty-state .lead {
+        color: var(--ink);
+        font-weight: 600;
+        margin-bottom: 8px;
       }
       .empty-state .btn {
-        margin-top: 0.5rem;
+        margin-top: 16px;
       }
+
       #toast {
         z-index: 2000;
+        bottom: 64px !important;
       }
-      .btn.copied,
-      .btn.copied:hover {
-        background: #146c43;
-        border-color: #146c43;
-        color: #fff;
+      .toast-undo {
+        color: #6cb6ff;
+      }
+      #autosaveNote.fail {
+        color: var(--err);
+        opacity: 1;
+      }
+      .sticky-bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+        display: none;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 16px;
+        padding: 8px clamp(24px, 4vw, 64px);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: saturate(180%) blur(20px);
+        border-top: 1px solid var(--line);
+        font-size: var(--fs-caption);
+        color: var(--muted);
+      }
+      .sticky-bar.show {
+        display: flex;
+      }
+      .asset-label {
+        display: block;
+        margin-bottom: 8px;
+      }
+      .asset-label .form-control {
+        margin-top: 4px;
+      }
+      #filterNote:not(:empty) {
+        margin-bottom: 8px;
+      }
+      .group-row .form-control.guess {
+        border: 1px dashed var(--accent);
+        background: #eef5ff;
+      }
+      #toast .toast {
+        border-radius: 12px;
+        font-size: var(--fs-body);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container-fluid px-3 px-lg-4 py-3">
-      <div class="d-flex align-items-center mb-3">
-        <h1 class="h4 mb-0"><span class="brand">Navigation</span> Tagger</h1>
-        <span class="text-muted ms-3 small">Paste the nav content sheet &rarr; get tagged links + data-category_name</span>
-        <div class="ms-auto d-flex align-items-center gap-2">
-          <span class="pending d-none d-md-inline-flex" id="autosaveNote" role="status" title="Your work is saved automatically in this browser only. Use Save to file to keep a copy or share it.">Saved to this browser automatically</span>
-          <button id="saveProject" class="btn btn-sm btn-outline-primary" title="Download everything (sheet, edits, order, assets, Wrike choices) as a .json file you can keep or share">Save to file</button>
-          <button id="loadProject" class="btn btn-sm btn-outline-secondary" title="Open a project file saved with Save to file">Load from file</button>
-          <input type="file" id="loadFile" accept=".json,application/json" hidden />
+    <div class="page">
+      <header class="top">
+        <h1 class="title">Navigation Tagger</h1>
+        <span class="grow"></span>
+        <span id="autosaveNote" class="pending" role="status" title="Your work is saved automatically in this browser only. Use Save to file to keep a copy or share it.">Saved</span>
+        <div class="dropdown">
+          <button class="btn btn-quiet" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Project menu">Project &#9662;</button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><button id="saveProject" class="dropdown-item" title="Download everything (sheet, edits, order, assets, Wrike choices) as a .json file you can keep or share">Save to file</button></li>
+            <li><button id="loadProject" class="dropdown-item" title="Open a project file saved with Save to file">Load from file</button></li>
+            <li><hr class="dropdown-divider" /></li>
+            <li><button id="clear" class="dropdown-item">Clear sheet</button></li>
+          </ul>
         </div>
-      </div>
+        <input type="file" id="loadFile" accept=".json,application/json" hidden />
+      </header>
+      <p class="caption mt-2 mb-0">Paste the nav content sheet, review the links, then copy the tagged output.</p>
 
-      <div class="row g-3">
-        <div class="col-lg-5">
-          <div class="card shadow-sm">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <button id="step1Toggle" class="btn btn-link p-0 text-start text-body" aria-expanded="true" title="Show / hide the pasted sheet"><strong>1. Paste spreadsheet</strong> <span id="step1Summary" class="text-muted small"></span> <span id="step1Caret" class="text-muted small">&#9662;</span></button>
-              <div class="d-flex gap-2"><button id="loadSample" class="btn btn-sm btn-outline-primary" data-sample title="Fill in an example sheet so you can see how it works">Load sample data</button><button id="clear" class="btn btn-sm btn-outline-secondary">Clear</button></div>
-            </div>
-            <div class="card-body" id="step1Body">
-              <textarea id="sheet" class="form-control" rows="10" placeholder='Copy the cells from Excel / Sheets and paste here (tab separated).&#10;&#10;Expected layout, e.g.:&#10;TOPS&#10;FEATURED&#10;Link&#9;URL&#9;Start&#9;End&#9;Owner&#10;New Arrivals&#9;/tops/new-arrivals/&#10;&#10;No sheet handy? Click "Load sample data".' wrap="off"></textarea>
-              <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" id="fullUrl" />
-                  <label class="form-check-label small" for="fullUrl">Full URLs (https://www.torrid.com)</label>
-                </div>
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" id="hideFlagged" />
-                  <label class="form-check-label small" for="hideFlagged">Hide redirects / ended</label>
-                </div>
-                <button id="parse" class="btn btn-primary btn-sm ms-auto">Generate</button>
+      <!-- Step 1: Paste -->
+      <section class="step" id="step1">
+        <div class="step-head">
+          <h2>Paste</h2>
+          <span id="step1Summary" class="step-summary"></span>
+          <button id="step1Toggle" class="link-btn d-none" aria-expanded="true">Edit</button>
+        </div>
+        <div id="step1Body">
+          <textarea id="sheet" class="form-control" rows="10" placeholder='Copy the cells from Excel / Sheets and paste here (tab separated).&#10;&#10;Expected layout, e.g.:&#10;TOPS&#10;FEATURED&#10;Link&#9;URL&#9;Start&#9;End&#9;Owner&#10;New Arrivals&#9;/tops/new-arrivals/&#10;&#10;No sheet handy? Click "Load sample data".' wrap="off"></textarea>
+          <div class="actions">
+            <button id="loadSample" class="btn btn-quiet" data-sample title="Fill in an example sheet so you can see how it works">Load sample data</button>
+            <span class="grow"></span>
+            <div class="dropdown">
+              <button class="btn btn-quiet" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Options &#9662;</button>
+              <div class="dropdown-menu dropdown-menu-end">
+                <label class="opt-row"><input type="checkbox" id="fullUrl" /> Full URLs (https://www.torrid.com)</label>
+                <label class="opt-row"><input type="checkbox" id="hideFlagged" /> Hide redirects / ended</label>
               </div>
             </div>
+            <button id="parse" class="btn btn-primary">Generate</button>
           </div>
         </div>
+      </section>
 
-        <div class="col-lg-7">
-          <div class="card shadow-sm h-100">
-            <div class="card-header d-flex align-items-center gap-2">
-              <strong>2. Detected groups</strong>
-              <span class="text-muted small">&mdash; edit promo_id / promo_position / name prefix</span>
-              <button id="groupsToggle" type="button" class="btn btn-sm btn-outline-secondary ms-auto" aria-expanded="true" aria-controls="groupsWrap">Minimize</button>
-            </div>
-            <div class="table-wrap" id="groupsWrap" style="max-height: 260px">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th>Menu</th>
-                    <th>Section</th>
-                    <th class="text-end">Links</th>
-                    <th>promo_id</th>
-                    <th>promo_position</th>
-                    <th>name prefix</th>
-                  </tr>
-                </thead>
-                <tbody id="groups">
-                  <tr>
-                    <td colspan="6" class="text-muted">Nothing parsed yet.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- Step 2: Review -->
+      <section class="step" id="step2">
+        <div class="step-head"><h2>Review</h2></div>
+        <div id="warnings"></div>
 
-      <div id="warnings" class="mt-3"></div>
+        <details class="disclosure mb-4" id="groupsDetails">
+          <summary>Show details: promo_id, promo_position, name prefix</summary>
+          <p class="caption mt-2 mb-0"><b>promo_id</b> names the group of links in analytics. <b>promo_position</b> is where the link sits in the nav. <b>name prefix</b> is added to the front of each promo_name. Dashed fields were guessed &mdash; check them.</p>
+          <div id="groups" class="mt-2"><div class="caption py-2">Nothing parsed yet.</div></div>
+        </details>
 
-      <div id="split" class="mt-3">
-        <div class="card shadow-sm panel" id="panelOut">
-          <div class="card-header d-flex flex-wrap align-items-center gap-2">
-            <strong class="me-2">3. Output</strong>
-            <div class="ms-auto d-flex gap-2">
-              <div class="btn-group">
-                <button id="copyTable" class="btn btn-sm btn-success" title="Copies a flat table (one row per link) you can paste into Excel / Sheets">Copy table</button>
-                <button class="btn btn-sm btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More copy options"></button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                  <li><button id="copyUrls" class="dropdown-item">Copy URLs only</button></li>
-                </ul>
-              </div>
-              <div class="dropdown">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                  <li><button id="dlCsv" class="dropdown-item">CSV</button></li>
-                  <li><button id="dlXlsx" class="dropdown-item">XLSX</button></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          <div class="px-3 pt-2"><ul class="nav nav-pills small" id="menuTabs"></ul></div>
-          <div class="panel-body">
-            <div class="px-3 pt-2 small d-flex align-items-center gap-3">
-              <label class="form-check-label"><input type="checkbox" id="checkAll" class="form-check-input me-1" checked />Select all shown</label>
-              <span class="text-muted">Laid out like the live nav. Per link: include, start date, name, NEW flag, then the tagged URL. Red dot / row = missing URL. Hover a link (or click the arrow) to see its tagged URL.</span>
-            </div>
-            <div id="out" class="p-3"></div>
-          </div>
+        <ul class="seg" id="menuTabs" role="tablist" aria-label="Navigation menus"></ul>
+        <div class="caption" id="filterNote" role="status"></div>
+        <div class="select-row" id="selectRow">
+          <label class="d-flex align-items-center gap-2 m-0"><input type="checkbox" id="checkAll" checked /> Select all shown</label>
         </div>
-        <div id="splitter" title="Drag to resize &middot; double-click to reset to 50/50"></div>
-        <div class="card shadow-sm panel" id="panelWrike">
-          <div class="card-header d-flex flex-wrap align-items-center gap-2">
-            <strong class="me-2">4. Wrike</strong>
-            <span class="text-muted small">Pick the navigations to include, then paste into Wrike.</span>
-            <div class="ms-auto d-flex align-items-center gap-3">
-              <button id="copyWrikeAll" class="btn btn-sm btn-success" title="Copies formatted tables ready to paste into Wrike">Copy for Wrike</button>
-            </div>
+        <div id="out"></div>
+      </section>
+
+      <!-- Step 3: Export -->
+      <section class="step" id="step3">
+        <div class="step-head"><h2>Export</h2><span id="wrikeSummary" class="step-summary"></span></div>
+        <div class="export-bar">
+          <div class="btn-split">
+            <button id="copyWrikeAll" class="btn btn-primary" title="Copies formatted tables ready to paste into Wrike">Copy for Wrike</button>
+            <button class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Other copy and download formats"></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><button id="copyTable" class="dropdown-item" title="Flat table (one row per link, tab separated) for Excel / Sheets">Copy table (TSV)</button></li>
+              <li><button id="copyUrls" class="dropdown-item">Copy URLs only</button></li>
+              <li><hr class="dropdown-divider" /></li>
+              <li><button id="dlCsv" class="dropdown-item">Download CSV</button></li>
+              <li><button id="dlXlsx" class="dropdown-item">Download XLSX</button></li>
+            </ul>
           </div>
-          <div class="card-body panel-body">
-            <div id="wrikeControls"></div>
-            <div class="d-flex align-items-center gap-2 mt-2">
-              <button id="wrikePreviewToggle" class="btn btn-sm btn-outline-secondary" aria-expanded="false" aria-controls="wrikePreview">Show preview</button>
-              <span id="wrikeSummary" class="text-muted small"></span>
-            </div>
-            <div id="wrikePreview" class="mt-3 d-none"></div>
-          </div>
+          <span id="exportNote" class="ms-2"></span>
         </div>
+        <div class="mt-4">
+          <div class="caption mb-2">Wrike navigations to include</div>
+          <div id="wrikeControls"></div>
+          <button id="wrikePreviewToggle" class="link-btn" aria-expanded="false" aria-controls="wrikePreview">Show Wrike preview</button>
+          <div id="wrikePreview" class="d-none"></div>
+        </div>
+      </section>
+
+      <div id="stickyBar" class="sticky-bar" aria-label="Quick export">
+        <span id="stickySummary"></span>
+        <button id="stickyCopy" class="btn btn-primary">Copy</button>
       </div>
       <div id="toast" class="position-fixed bottom-0 end-0 p-3" role="status" aria-live="polite"></div>
     </div>
